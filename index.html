@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8" />
-<title>Momentum SGD Optimization Visualization</title>
-<style>body { margin:0; } canvas { display:block; }</style>
+  <meta charset="UTF-8" />
+  <title>Momentum SGD Optimization Visualization</title>
+  <style>body { margin:0; } canvas { display:block; }</style>
 </head>
 <body>
 
@@ -11,26 +11,30 @@
 <script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
 
 <script>
-// 모멘텀 경로 JSON 데이터 (Python에서 저장한 결과를 여기에 붙여넣으세요)
-const momentumPath = [
-  [2.5, 2.5], [2.0175, 2.02], [1.595, 1.651], /* ... 50개 좌표 모두 넣기 ... */
-];
-
-// 예시로 일부 데이터만 넣었는데, 실제로는 파일에 있는 전체 좌표 넣어야 합니다.
-
-function f(x, y) {
-  return Math.pow(x,4) + Math.pow(y,4) - 4*x*x - 4*y*y + 4;
-}
-
+let momentumPath = []; // 외부 JSON을 여기로 불러옵니다.
 let scene, camera, renderer, controls;
 let surfaceMesh;
 let pointGeometry, pointMaterial, pointMesh;
-let maxSteps = momentumPath.length;
+let maxSteps = 0;
 let step = 0;
 let animating = true;
 
-init();
-animate();
+function f(x, y) {
+  return Math.pow(x, 4) + Math.pow(y, 4) - 4 * x * x - 4 * y * y + 4;
+}
+
+// === JSON 불러온 후 시각화 시작 ===
+fetch('momentum_path.json')
+  .then(response => response.json())
+  .then(data => {
+    momentumPath = data;
+    maxSteps = momentumPath.length;
+    init();
+    animate();
+  })
+  .catch(error => {
+    console.error('JSON 로딩 실패:', error);
+  });
 
 function init() {
   scene = new THREE.Scene();
@@ -42,19 +46,17 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(0,0,0);
+  controls.target.set(0, 0, 0);
   controls.update();
 
   // 곡면 생성
   const geometry = new THREE.PlaneGeometry(12, 12, 100, 100);
   const vertices = geometry.attributes.position.array;
-
   for(let i=0; i < vertices.length; i += 3) {
     let x = vertices[i];
     let y = vertices[i+1];
-    vertices[i+2] = f(x, y); // 높이값
+    vertices[i+2] = f(x, y);
   }
-
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
@@ -74,7 +76,7 @@ function init() {
   scene.add(light);
   scene.add(new THREE.AmbientLight(0x404040));
 
-  // 포인트 메쉬 준비 (처음엔 한 점만)
+  // 포인트 준비
   pointGeometry = new THREE.BufferGeometry();
   const positions = new Float32Array(maxSteps * 3);
   pointGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -85,7 +87,7 @@ function init() {
   window.addEventListener('resize', onWindowResize, false);
 }
 
-function onWindowResize(){
+function onWindowResize() {
   camera.aspect = window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -95,13 +97,12 @@ function animate() {
   requestAnimationFrame(animate);
 
   if(animating && step < maxSteps) {
-    for(let i=0; i<=step; i++) {
-      let x = momentumPath[i][0];
-      let y = momentumPath[i][1];
-      let z = f(x,y);
+    for(let i = 0; i <= step; i++) {
+      let [x, y] = momentumPath[i];
+      let z = f(x, y);
       pointGeometry.attributes.position.array[3*i] = x;
-      pointGeometry.attributes.position.array[3*i+1] = z; // 높이 축
-      pointGeometry.attributes.position.array[3*i+2] = y;
+      pointGeometry.attributes.position.array[3*i + 1] = z;
+      pointGeometry.attributes.position.array[3*i + 2] = y;
     }
     pointGeometry.attributes.position.needsUpdate = true;
     step++;
