@@ -1,116 +1,97 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <title>Momentum SGD Optimization Visualization</title>
-  <style>body { margin:0; } canvas { display:block; }</style>
-</head>
-<body>
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from mpl_toolkits.mplot3d import Axes3D
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.152.2/examples/js/controls/OrbitControls.js"></script>
+# 함수 정의
+def f(x, y):
+    return (x**2 - 2)**2 + (y**2 - 2)**2
 
-<script>
-let momentumPath = []; // 외부 JSON을 여기로 불러옵니다.
-let scene, camera, renderer, controls;
-let surfaceMesh;
-let pointGeometry, pointMaterial, pointMesh;
-let maxSteps = 0;
-let step = 0;
-let animating = true;
+def grad_f(x, y):
+    dfdx = 4 * x * (x**2 - 2)
+    dfdy = 4 * y * (y**2 - 2)
+    return np.array([dfdx, dfdy])
 
-function f(x, y) {
-  return Math.pow(x, 4) + Math.pow(y, 4) - 4 * x * x - 4 * y * y + 4;
-}
+# SGD Optimizer
+def sgd(start, lr=0.01, steps=100):
+    x = start.copy()
+    path = [x.copy()]
+    for _ in range(steps):
+        g = grad_f(*x)
+        x -= lr * g
+        path.append(x.copy())
+    return np.array(path)
 
-// === JSON 불러온 후 시각화 시작 ===
-fetch('momentum_path.json')
-  .then(response => response.json())
-  .then(data => {
-    momentumPath = data;
-    maxSteps = momentumPath.length;
-    init();
-    animate();
-  })
-  .catch(error => {
-    console.error('JSON 로딩 실패:', error);
-  });
+# Momentum Optimizer
+def momentum_sgd(start, lr=0.01, steps=100, momentum=0.9):
+    x = start.copy()
+    v = np.zeros_like(x)
+    path = [x.copy()]
+    for _ in range(steps):
+        g = grad_f(*x)
+        v = momentum * v - lr * g
+        x += v
+        path.append(x.copy())
+    return np.array(path)
 
-function init() {
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-  camera.position.set(10, 15, 20);
+# 실제 공 (뉴턴역학): 위치, 속도 업데이트
+def physics_ball(start, steps=100, dt=0.1, friction=0.1, mass=1.0):
+    x = start.copy()
+    v = np.zeros_like(x)
+    path = [x.copy()]
+    for _ in range(steps):
+        F = -grad_f(*x)
+        a = F / mass
+        v += a * dt
+        v *= (1 - friction)  # 마찰
+        x += v * dt
+        path.append(x.copy())
+    return np.array(path)
 
-  renderer = new THREE.WebGLRenderer({antialias:true});
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+# 경로 계산
+start = np.array([2.5, 2.5])
+sgd_path = sgd(start, lr=0.01, steps=100)
+momentum_path = momentum_sgd(start, lr=0.01, steps=100, momentum=0.9)
+ball_path = physics_ball(start, steps=100, dt=0.1, friction=0.1)
 
-  controls = new THREE.OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 0, 0);
-  controls.update();
+# 애니메이션 설정
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+X = Y = np.linspace(-3, 3, 100)
+X, Y = np.meshgrid(X, Y)
+Z = f(X, Y)
+ax.plot_surface(X, Y, Z, alpha=0.3, cmap='viridis', edgecolor='none')
 
-  // 곡면 생성
-  const geometry = new THREE.PlaneGeometry(12, 12, 100, 100);
-  const vertices = geometry.attributes.position.array;
-  for(let i=0; i < vertices.length; i += 3) {
-    let x = vertices[i];
-    let y = vertices[i+1];
-    vertices[i+2] = f(x, y);
-  }
-  geometry.computeVertexNormals();
+sgd_line, = ax.plot([], [], [], 'r-', label='SGD')
+momentum_line, = ax.plot([], [], [], 'b-', label='Momentum')
+ball_line, = ax.plot([], [], [], 'g-', label='Ball (Physics)')
+ax.legend()
 
-  const material = new THREE.MeshStandardMaterial({
-    color: 0x4477aa,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.7
-  });
+def init():
+    sgd_line.set_data([], [])
+    sgd_line.set_3d_properties([])
 
-  surfaceMesh = new THREE.Mesh(geometry, material);
-  surfaceMesh.rotation.x = -Math.PI / 2;
-  scene.add(surfaceMesh);
+    momentum_line.set_data([], [])
+    momentum_line.set_3d_properties([])
 
-  // 조명
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(10, 20, 10);
-  scene.add(light);
-  scene.add(new THREE.AmbientLight(0x404040));
+    ball_line.set_data([], [])
+    ball_line.set_3d_properties([])
+    return sgd_line, momentum_line, ball_line
 
-  // 포인트 준비
-  pointGeometry = new THREE.BufferGeometry();
-  const positions = new Float32Array(maxSteps * 3);
-  pointGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  pointMaterial = new THREE.PointsMaterial({ color: 0xff0000, size: 0.2 });
-  pointMesh = new THREE.Points(pointGeometry, pointMaterial);
-  scene.add(pointMesh);
+def update(i):
+    for line, path in zip([sgd_line, momentum_line, ball_line], 
+                          [sgd_path, momentum_path, ball_path]):
+        line.set_data(path[:i+1, 0], path[:i+1, 1])
+        z = [f(x, y) for x, y in path[:i+1]]
+        line.set_3d_properties(z)
+    return sgd_line, momentum_line, ball_line
 
-  window.addEventListener('resize', onWindowResize, false);
-}
+ani = FuncAnimation(fig, update, frames=len(sgd_path), init_func=init,
+                    blit=True, interval=100, repeat=False)
 
-function onWindowResize() {
-  camera.aspect = window.innerWidth/window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.set_zlabel("f(x, y)")
+ax.set_title("SGD vs Momentum vs Physical Ball")
 
-function animate() {
-  requestAnimationFrame(animate);
-
-  if(animating && step < maxSteps) {
-    for(let i = 0; i <= step; i++) {
-      let [x, y] = momentumPath[i];
-      let z = f(x, y);
-      pointGeometry.attributes.position.array[3*i] = x;
-      pointGeometry.attributes.position.array[3*i + 1] = z;
-      pointGeometry.attributes.position.array[3*i + 2] = y;
-    }
-    pointGeometry.attributes.position.needsUpdate = true;
-    step++;
-  }
-
-  renderer.render(scene, camera);
-}
-</script>
-
-</body>
-</html>
+plt.show()
